@@ -1,0 +1,14 @@
+.file-string-html-property {
+    margin-bottom: 20px;
+}
+
+.file-string-html-property .string-value,
+.file-string-html-property .file-value,
+.file-string-html-property .html-value {
+    margin-bottom: 10px;
+}
+
+.file-string-html-property strong {
+    display: inline-block;
+    width: 100px;
+}
