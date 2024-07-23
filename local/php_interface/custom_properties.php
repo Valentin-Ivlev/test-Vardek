@@ -1,104 +1,104 @@
 <?php
 use Bitrix\Main\Localization\Loc;
 use Bitrix\Main\EventManager;
+use Bitrix\Main\UserField\Types\StringType;
+use Bitrix\Main\Context;
+use Bitrix\Main\Web\Json;
 
-class CUserTypeFileStringHtml extends CUserTypeString
+class FileStringHtmlType extends StringType
 {
-    const USER_TYPE_ID = 'file_string_html';
+    public const USER_TYPE_ID = 'file_string_html';
 
-    public function GetUserTypeDescription()
+    public static function getDescription(): array
     {
-        return array(
-            "USER_TYPE_ID" => self::USER_TYPE_ID,
-            "CLASS_NAME" => __CLASS__,
-            "DESCRIPTION" => "Файл + Строка + HTML/текст",
-            "BASE_TYPE" => "string",
-            "MULTIPLE" => "Y",
-        );
+        return [
+            'DESCRIPTION' => 'Файл + Строка + HTML/текст',
+            'BASE_TYPE' => \CUserTypeManager::BASE_TYPE_STRING,
+        ];
     }
 
-    public function GetDBColumnType($arUserField)
+    public static function prepareSettings(array $userField): array
     {
-        global $DB;
-        switch(strtolower($DB->type))
-        {
-            case "mysql":
-                return "text";
-            case "oracle":
-                return "varchar2(2000 char)";
-            case "mssql":
-                return "varchar(max)";
-        }
+        return [
+            'SIZE' => (int)($userField['SETTINGS']['SIZE'] ?? 0),
+            'ROWS' => (int)($userField['SETTINGS']['ROWS'] ?? 1),
+            'MIN_LENGTH' => (int)($userField['SETTINGS']['MIN_LENGTH'] ?? 0),
+            'MAX_LENGTH' => (int)($userField['SETTINGS']['MAX_LENGTH'] ?? 0),
+        ];
     }
 
-    public function PrepareSettings($arUserField)
+    public static function getDbColumnType(): string
     {
-        return array(
-            "SIZE" =>  intval($arUserField["SETTINGS"]["SIZE"]),
-            "ROWS" => intval($arUserField["SETTINGS"]["ROWS"]),
-            "MIN_LENGTH" => intval($arUserField["SETTINGS"]["MIN_LENGTH"]),
-            "MAX_LENGTH" => intval($arUserField["SETTINGS"]["MAX_LENGTH"]),
-            "DEFAULT_VALUE" => $arUserField["SETTINGS"]["DEFAULT_VALUE"],
-        );
+        return 'text';
     }
 
-    public function GetEditFormHTML($arUserField, $arHtmlControl)
-    {
-        CModule::IncludeModule("fileman");
-
-        $fieldName = $arHtmlControl["NAME"];
-        $value = $arUserField["VALUE"];
-
-        if (!is_array($value)) {
-            $value = unserialize($value);
-        }
-
-        $stringInput = '<input type="text" name="' . $fieldName . '[STRING]" value="' . htmlspecialcharsbx($value["STRING"]) . '" />';
-
-        $fileInput = CFileInput::Show($fieldName . "[FILE]", $value["FILE"],
-            array("IMAGE" => "Y", "PATH" => "Y", "FILE_SIZE" => "Y", "DIMENSIONS" => "Y", "IMAGE_POPUP" => "Y", "MAX_SIZE" => array("W" => 200, "H" => 200)),
-            array("upload" => true, "medialib" => true, "file_dialog" => true, "cloud" => true, "del" => true, "description" => false)
-        );
-
-        ob_start();
-        CFileMan::AddHTMLEditorFrame(
-            $fieldName . "[HTML]",
-            $value["HTML"],
-            "HTML",
-            "html",
-            array('height' => 200, 'width' => '100%')
-        );
-        $htmlEditor = ob_get_clean();
-
-        return 'Строка: ' . $stringInput . '<br>Файл: ' . $fileInput . '<br>HTML/TEXT: ' . $htmlEditor;
-    }
-
-    public function OnBeforeSave($arUserField, $value)
+    public static function onBeforeSave($userField, $value)
     {
         if (!is_array($value)) {
-            $value = array();
+            $value = [];
         }
 
-        if (!empty($_FILES[$arUserField["FIELD_NAME"] . '_FILE'])) {
-            $fileId = CFile::SaveFile($_FILES[$arUserField["FIELD_NAME"] . '_FILE'], "custom_property");
+        $request = Context::getCurrent()->getRequest();
+        $files = $request->getFile($userField['FIELD_NAME']);
+
+        if (!empty($files['FILE'])) {
+            $fileId = \CFile::SaveFile($files['FILE'], 'custom_property');
             if ($fileId) {
                 $value['FILE'] = $fileId;
             }
         }
 
-        $value['STRING'] = $_REQUEST[$arUserField["FIELD_NAME"]]['STRING'];
-        $value['HTML'] = $_REQUEST[$arUserField["FIELD_NAME"]]['HTML'];
+        $value['STRING'] = $request->get($userField['FIELD_NAME'])['STRING'] ?? '';
+        $value['HTML'] = $request->get($userField['FIELD_NAME'])['HTML'] ?? '';
 
-        return serialize($value);
+        return Json::encode($value);
     }
 
-    public function OnAfterFetch($arUserField, $arResult)
+    public static function onAfterFetch($userField, $value)
     {
-        if (!empty($arResult["VALUE"])) {
-            return unserialize($arResult["VALUE"]);
+        if (!empty($value['VALUE'])) {
+            return Json::decode($value['VALUE']);
         }
-        return array();
+        return [];
+    }
+
+    public static function getFilterHtml($userField, $control): string
+    {
+        return '';  // Implement if needed
+    }
+
+    public static function getAdminListViewHtml($userField, $control): string
+    {
+        $value = static::onAfterFetch($userField, ['VALUE' => $control['VALUE']]);
+        return "Строка: {$value['STRING']}, Файл: {$value['FILE']}, HTML: " . substr($value['HTML'], 0, 50) . '...';
+    }
+
+    public static function getEditFormHtml($userField, $control): string
+    {
+        \CModule::IncludeModule('fileman');
+
+        $value = static::onAfterFetch($userField, ['VALUE' => $control['VALUE']]);
+        $fieldName = $control['NAME'];
+
+        $stringInput = "<input type='text' name='{$fieldName}[STRING]' value='" . htmlspecialcharsbx($value['STRING']) . "' />";
+
+        $fileInput = \CFileInput::Show($fieldName . "[FILE]", $value['FILE'],
+            ["IMAGE" => "Y", "PATH" => "Y", "FILE_SIZE" => "Y", "DIMENSIONS" => "Y", "IMAGE_POPUP" => "Y", "MAX_SIZE" => ["W" => 200, "H" => 200]],
+            ["upload" => true, "medialib" => true, "file_dialog" => true, "cloud" => true, "del" => true, "description" => false]
+        );
+
+        ob_start();
+        \CFileMan::AddHTMLEditorFrame(
+            $fieldName . "[HTML]",
+            $value['HTML'],
+            "HTML",
+            "html",
+            ['height' => 200, 'width' => '100%']
+        );
+        $htmlEditor = ob_get_clean();
+
+        return 'Строка: ' . $stringInput . '<br>Файл: ' . $fileInput . '<br>HTML/TEXT: ' . $htmlEditor;
     }
 }
 
-EventManager::getInstance()->addEventHandler("iblock", "OnIBlockPropertyBuildList", array("CUserTypeFileStringHtml", "GetUserTypeDescription"));
+EventManager::getInstance()->addEventHandler('main', 'OnUserTypeBuildList', [FileStringHtmlType::class, 'getDescription']);
